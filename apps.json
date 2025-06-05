@@ -94,6 +94,10 @@
     {
       "url": "https://github.com/The-Commit-Company/raven",
       "branch": "main"
+    },
+    {
+      "url": "https://github.com/fadilsiddique/frappe_fcm_notification",
+      "branch": "main"
     }
 ]
 

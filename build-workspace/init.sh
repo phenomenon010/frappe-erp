@@ -81,9 +81,11 @@ bench --site crm.localhost install-app twilio_integration
 bench --site crm.localhost install-app newsletter
 bench pip install uuid_utils
 # bench --site crm.localhost install-app mail --force
+# Self-hosted FCM Push notification Setup
+# bench install-app frappe_fcm_notification
 bench --site crm.localhost install-app drive
 
-echo "Updateing Default Configurations"
+echo "Updating Default Configurations"
 
 bench --site crm.localhost set-config default_country "United States"
 bench --site crm.localhost set-config default_currency "USD"
