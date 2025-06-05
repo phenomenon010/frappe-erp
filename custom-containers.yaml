@@ -1,0 +1,193 @@
+x-customizable-image: &customizable_image
+  # By default the image used only contains the `frappe` and `erpnext` apps.
+  # See https://github.com/frappe/frappe_docker/blob/main/docs/custom-apps.md
+  # about using custom images.
+  image: ${CUSTOM_IMAGE:-frappe/erpnext}:${CUSTOM_TAG:-$ERPNEXT_VERSION}
+  pull_policy: ${PULL_POLICY:-always}
+  restart: ${RESTART_POLICY:-unless-stopped}
+
+x-depends-on-configurator: &depends_on_configurator
+  depends_on:
+    configurator:
+      condition: service_completed_successfully
+
+x-backend-defaults: &backend_defaults
+  <<: [*depends_on_configurator, *customizable_image]
+  volumes:
+    - sites:/home/frappe/frappe-bench/sites
+services:
+  configurator:
+    <<: *backend_defaults
+    platform: linux/amd64
+    user: frappe
+    networks:
+      - frappe_network
+    entrypoint:
+      - bash
+      - -c
+    # add redis_socketio for backward compatibility
+    command:
+      - >
+        ls -1 apps > sites/apps.txt;
+        bench set-config -g db_type $$DB_TYPE;
+        bench set-config -g db_host $$DB_HOST;
+        bench set-config -gp db_port $$DB_PORT;
+        bench set-config -g root_login $$DB_ROOT_USER;
+        bench set-config -g root_password $$DB_ROOT_PASS;
+        bench set-config -g redis_cache "redis://$$REDIS_CACHE";
+        bench set-config -g redis_queue "redis://$$REDIS_QUEUE";
+        bench set-config -g redis_socketio "redis://$$REDIS_QUEUE";
+        bench set-config -gp socketio_port $$SOCKETIO_PORT;
+        bench set-config -g admin_password $$ADMIN_PSSWD;
+        bench set-config -g developer_mode $$DEV_MODE;
+    environment:
+      DB_TYPE: ${DB_TYPE:-mariadb}
+      DB_ROOT_USER: ${DB_ROOT_USER:-root}
+      DB_ROOT_PASS: ${DB_ROOT_PASS:-admin}
+      DB_HOST: ${DB_HOST:-db}
+      DB_PORT: "3306"
+      REDIS_CACHE: ${REDIS_CACHE:-redis-cache:6379}
+      REDIS_QUEUE: ${REDIS_QUEUE:-redis-queue:6379}
+      SOCKETIO_PORT: "9000"
+      ADMIN_PSSWD: ${ADMIN_PSSWD:-admin}
+      DEV_MODE: ${DEV_MODE:-0}
+    depends_on: {}
+    restart: on-failure
+  backend:
+    <<: *backend_defaults
+    platform: linux/amd64
+    networks:
+      - frappe_network
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      MYSQL_ROOT_PASSWORD: admin
+      MARIADB_ROOT_PASSWORD: admin
+  frontend:
+    <<: *customizable_image
+    platform: linux/amd64
+    networks:
+      - frappe_network
+    ports:
+      - ${HTTP_PUBLISH_PORT:-8080}:8080
+    command:
+      - nginx-entrypoint.sh
+    environment:
+      BACKEND: backend:8000
+      SOCKETIO: websocket:9000
+      FRAPPE_SITE_NAME_HEADER: ${FRAPPE_SITE_NAME_HEADER:-$$host}
+      UPSTREAM_REAL_IP_ADDRESS: ${UPSTREAM_REAL_IP_ADDRESS:-127.0.0.1}
+      UPSTREAM_REAL_IP_HEADER: ${UPSTREAM_REAL_IP_HEADER:-X-Forwarded-For}
+      UPSTREAM_REAL_IP_RECURSIVE: ${UPSTREAM_REAL_IP_RECURSIVE:-off}
+      PROXY_READ_TIMEOUT: ${PROXY_READ_TIMEOUT:-120}
+      CLIENT_MAX_BODY_SIZE: ${CLIENT_MAX_BODY_SIZE:-50m}
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+    depends_on:
+      - backend
+      - websocket
+
+  create-site:
+    <<: *customizable_image
+    deploy:
+      restart_policy:
+        condition: none
+    networks:
+      - frappe_network
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - ./build-workspace/init.sh:/build-workspace/init.sh
+    entrypoint:
+      - bash
+      - -c
+    environment:
+      SHELL: /bin/bash
+    command:
+      - >
+        wait-for-it -t 120 db:3306;
+        wait-for-it -t 120 redis-cache:6379;
+        wait-for-it -t 120 redis-queue:6379;
+        export start=`date +%s`;
+        until [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".db_host // empty"` ]] && \
+          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_cache // empty"` ]] && \
+          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_queue // empty"` ]];
+        do
+          echo "Waiting for sites/common_site_config.json to be created";
+          sleep 5;
+          if (( `date +%s`-start > 120 )); then
+            echo "could not find sites/common_site_config.json with required keys";
+            exit 1
+          fi
+        done;
+        echo "sites/common_site_config.json found, building workspace";
+        bash /build-workspace/init.sh;
+        ln -s /home/frappe/frappe-bench/apps/helpdesk/helpdesk/public/desk/ helpdesk;
+        bench --site all migrate;
+        bench --site all clear-cache;
+        bench --site all clear-website-cache;
+        bench restart;
+        service nginx reload;
+  websocket:
+    <<: [*depends_on_configurator, *customizable_image]
+    platform: linux/amd64
+    networks:
+      - frappe_network
+    command:
+      - node
+      - /home/frappe/frappe-bench/apps/frappe/socketio.js
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+  queue-short:
+    <<: *backend_defaults
+    platform: linux/amd64
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - bench
+      - worker
+      - --queue
+      - short,default
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+  queue-long:
+    <<: *backend_defaults
+    deploy:
+      restart_policy:
+        condition: on-failure
+    networks:
+      - frappe_network
+    command:
+      - bench
+      - worker
+      - --queue
+      - long,default,short
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+  scheduler:
+    <<: *backend_defaults
+    platform: linux/amd64
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - bench
+      - schedule
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+# ERPNext requires local assets access (Frappe does not)
+volumes:
+  sites:
+    name: sites
+  logs:
+    name: logs
+networks:
+  frappe_network:
+    driver: bridge
