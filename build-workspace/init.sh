@@ -69,6 +69,9 @@ bench --site crm.localhost install-app webshop
 bench --site crm.localhost install-app payments
 bench --site crm.localhost install-app wiki
 bench --site crm.localhost install-app raven
+# Starting from version 15, Server Scripts are disabled by default to improve 
+# security on shared benches and are needed for some of raven's functions
+bench set-config -g server_script_enabled 1
 bench --site crm.localhost install-app nextproject
 bench --site crm.localhost install-app erpnext_price_estimation
 bench --site crm.localhost install-app csf_tz
