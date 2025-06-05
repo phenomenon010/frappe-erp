@@ -1,8 +1,43 @@
+
 # Getting Started
 
 To get started you need [Docker](https://docs.docker.com/get-docker/), [docker-compose](https://docs.docker.com/compose/), and [git](https://docs.github.com/en/get-started/getting-started-with-git/set-up-git) setup on your machine. For Docker basics and best practices refer to Docker's [documentation](http://docs.docker.com).
 
-### Try on your Dev environment
+## List of Included apps
+(*)hrms
+(*)crm
+(*)helpdesk
+(*)property management system
+(*)non_profit
+(*)lending
+(*)lms
+(*)studio
+(*)builder
+(*)print designer
+(*)webshop
+(*)payments
+(*)wiki
+(*)raven
+(*)nextproject
+(*)erpnext price estimation
+(*)csf tz
+(*)propms
+(*)twilio integration
+(*)newsletter
+(*)insights
+
+## Plugins
+(*)geopy
+(*)uuid_utils
+
+## Default Configurations 
+(Edit build-workspace/inint.sh to change)
+set-config default_country `"United States"`
+set-config default_currency `"USD"`
+set-config default_company `"Dynamic Solutions"`
+set-config fiscal_year `"2025-2026"`
+
+### Try out
 
 Clone the repo and run docker compose:
 
